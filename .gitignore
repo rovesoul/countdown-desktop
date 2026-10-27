@@ -1,0 +1,41 @@
+# ---- 依赖 ----
+node_modules/
+
+# ---- 前端构建产物 ----
+dist/
+
+# ---- Rust / Tauri 构建产物 ----
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# ---- 编辑器 / IDE 的 Rust 缓存目录 ----
+rust-analyzer-target/
+*-ra-target/
+target-ra/
+
+# ---- 打包好的可执行文件（体积大，请用 GitHub Releases 发布）----
+release/
+
+# ---- 编辑器 ----
+.vscode/*
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 日志与临时文件 ----
+*.log
+npm-debug.log*
+yarn-error.log*
+shot.png
+tmp_*.png
+
+# ---- 环境变量 ----
+.env
+.env.local
+.env.*.local

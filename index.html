@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>倒计时</title>
+  </head>
+  <body>
+    <div id="app" class="app" data-layout="h" data-bar="solid">
+      <div class="grip grip-left" id="gripLeft" title="拖动可缩成 5mm 细条"></div>
+      <div class="grip grip-right" id="gripRight" title="拖动可调整宽度"></div>
+
+      <header class="topbar" data-tauri-drag-region>
+        <div class="brand" data-tauri-drag-region>
+          <span class="brand-dot" id="brandDot"></span>
+          <span class="brand-text" id="statusText">待机</span>
+          <span class="brand-round" id="roundText"></span>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="btnBar" title="细条模式">▮</button>
+          <button class="icon-btn" id="btnSettings" title="设置">⚙</button>
+        </div>
+      </header>
+
+      <main class="stage">
+        <div class="clock" id="clock">25:00</div>
+        <div class="progress" id="progress">
+          <div class="cap cap-start">
+            <span class="cap-label">已用</span>
+            <span class="cap-value" id="elapsedText">0s</span>
+          </div>
+          <div class="track" id="track">
+            <div class="fill" id="fill"></div>
+            <div class="mini" id="mini">25:00</div>
+          </div>
+          <div class="cap cap-end">
+            <span class="cap-label">剩余</span>
+            <span class="cap-value" id="remainText">25:00</span>
+          </div>
+        </div>
+      </main>
+
+      <footer class="actions" id="actions">
+        <button class="btn" id="btnSet">设定时间</button>
+        <button class="btn btn-primary" id="btnStart">开始</button>
+        <button class="btn btn-flash" id="btnFlash" hidden>停止闪烁</button>
+      </footer>
+
+      <!-- 设定时间 -->
+      <div class="overlay" id="setOverlay" hidden>
+        <div class="sheet">
+          <h2 class="sheet-title">设定时间</h2>
+          <div class="time-inputs">
+            <label class="field">
+              <input id="inHours" class="num" type="number" min="0" max="99" step="1" value="0" />
+              <span class="unit">时</span>
+            </label>
+            <label class="field">
+              <input id="inMinutes" class="num" type="number" min="0" max="59" step="1" value="25" />
+              <span class="unit">分</span>
+            </label>
+            <label class="field">
+              <input id="inSeconds" class="num" type="number" min="0" max="59" step="1" value="0" />
+              <span class="unit">秒</span>
+            </label>
+          </div>
+          <div class="presets" id="presetRow"></div>
+          <label class="check-row">
+            <input type="checkbox" id="chkLoop" />
+            <span>循环倒计时（到点自动重新开始）</span>
+          </label>
+          <div class="sheet-actions">
+            <button class="btn" id="setCancel">取消</button>
+            <button class="btn btn-primary" id="setStart">开始</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 设置 -->
+      <div class="overlay" id="settingsOverlay" hidden>
+        <div class="sheet sheet-wide">
+          <h2 class="sheet-title">设置</h2>
+          <div class="settings-grid" id="settingsGrid"></div>
+          <div class="sheet-actions">
+            <button class="btn" id="settingsReset">恢复默认</button>
+            <button class="btn btn-primary" id="settingsClose">完成</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 确认 -->
+      <div class="overlay overlay-confirm" id="confirmOverlay" hidden>
+        <div class="sheet sheet-sm">
+          <h2 class="sheet-title" id="confirmTitle">确认</h2>
+          <p class="sheet-text" id="confirmText"></p>
+          <div class="sheet-actions">
+            <button class="btn" id="confirmCancel">取消</button>
+            <button class="btn btn-danger" id="confirmOk">确定</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="ctx-menu" id="ctxMenu" hidden></div>
+      <div class="toast" id="toast" hidden></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
