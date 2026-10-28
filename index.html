@@ -18,6 +18,15 @@
         </div>
         <div class="topbar-actions">
           <button class="icon-btn" id="btnBar" title="细条模式">▮</button>
+          <button class="icon-btn" id="btnTop" title="窗口置顶" aria-label="窗口置顶">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+              <path
+                fill="currentColor"
+                d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3Z"
+              />
+            </svg>
+          </button>
+          <button class="icon-btn" id="btnHelp" title="操作说明" aria-label="操作说明">?</button>
           <button class="icon-btn" id="btnSettings" title="设置">⚙</button>
         </div>
       </header>
@@ -79,7 +88,7 @@
       <!-- 设置 -->
       <div class="overlay" id="settingsOverlay" hidden>
         <div class="sheet sheet-wide">
-          <h2 class="sheet-title">设置</h2>
+          <h2 class="sheet-title" data-tauri-drag-region title="拖动标题可以移动窗口">设置</h2>
           <div class="settings-grid" id="settingsGrid"></div>
           <div class="sheet-actions">
             <button class="btn" id="settingsReset">恢复默认</button>
@@ -96,6 +105,17 @@
           <div class="sheet-actions">
             <button class="btn" id="confirmCancel">取消</button>
             <button class="btn btn-danger" id="confirmOk">确定</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 操作说明 -->
+      <div class="overlay" id="helpOverlay" hidden>
+        <div class="sheet sheet-wide">
+          <h2 class="sheet-title" data-tauri-drag-region title="拖动标题可以移动窗口">操作说明</h2>
+          <div class="help-body" id="helpBody"></div>
+          <div class="sheet-actions">
+            <button class="btn btn-primary" id="helpClose">关闭</button>
           </div>
         </div>
       </div>

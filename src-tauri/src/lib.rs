@@ -17,6 +17,8 @@ pub struct AppState {
     pub settings: Mutex<Settings>,
     /// Bindings that could not be registered, shown to the user as a warning.
     pub hotkey_warnings: Mutex<Vec<String>>,
+    /// Window geometry captured before a panel enlarged the window.
+    pub pre_panel_geometry: Mutex<Option<window_ops::WindowGeometry>>,
 }
 
 // ---------------------------------------------------------------- commands
@@ -133,16 +135,21 @@ fn set_bar_mode(app: AppHandle, enabled: bool) -> Result<bool, String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "找不到主窗口".to_string())?;
-    window_ops::set_bar_mode(&window, enabled)?;
+    let side = {
+        let state = app.state::<AppState>();
+        let settings = state.settings.lock().unwrap();
+        window_ops::BarSide::from_settings(&settings.bar_side)
+    };
+    window_ops::set_bar_mode(&window, enabled, side)?;
     Ok(enabled)
 }
 
 #[tauri::command]
-fn dock_right(app: AppHandle) -> Result<(), String> {
+fn dock_side(app: AppHandle, side: String) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "找不到主窗口".to_string())?;
-    window_ops::dock_right(&window)
+    window_ops::dock_side(&window, window_ops::BarSide::from_settings(&side))
 }
 
 #[tauri::command]
@@ -165,6 +172,48 @@ fn set_window_size(app: AppHandle, width: f64, height: f64) -> Result<(), String
             height.max(60.0) as u32,
         ))
         .map_err(|e| e.to_string())
+}
+
+/// Logical size of the screen the widget is displayed on. The progress bar
+/// thickness is expressed as a percentage of it.
+#[tauri::command]
+fn screen_size(app: AppHandle) -> Result<window_ops::ScreenSize, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "找不到主窗口".to_string())?;
+    window_ops::screen_size(&window)
+}
+
+/// Enlarges the window so a panel is fully visible, even when the widget is
+/// docked against a screen edge.
+#[tauri::command]
+fn enter_panel_mode(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "找不到主窗口".to_string())?;
+    let geometry = window_ops::WindowGeometry::capture(&window)?;
+    {
+        let state = app.state::<AppState>();
+        *state.pre_panel_geometry.lock().unwrap() = Some(geometry);
+    }
+    window_ops::expand_for_panel(&window, width, height)
+}
+
+/// Puts the window back where it was before a panel opened.
+#[tauri::command]
+fn exit_panel_mode(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "找不到主窗口".to_string())?;
+    let geometry = {
+        let state = app.state::<AppState>();
+        let mut slot = state.pre_panel_geometry.lock().unwrap();
+        slot.take()
+    };
+    match geometry {
+        Some(geometry) => geometry.restore(&window),
+        None => Ok(()),
+    }
 }
 
 #[tauri::command]
@@ -278,6 +327,7 @@ pub fn run() {
             timer: Mutex::new(Timer::new(Settings::default().default_duration)),
             settings: Mutex::new(Settings::default()),
             hotkey_warnings: Mutex::new(Vec::new()),
+            pre_panel_geometry: Mutex::new(None),
         })
         .setup(|app| {
             let handle = app.handle().clone();
@@ -293,9 +343,7 @@ pub fn run() {
                 timer.total = loaded.default_duration.max(1.0);
             }
 
-            let window = app
-                .get_webview_window("main")
-                .expect("缺少主窗口");
+            let window = app.get_webview_window("main").expect("缺少主窗口");
             let _ = window.set_always_on_top(loaded.always_on_top);
             let _ = window_ops::apply_min_size(&window);
 
@@ -346,9 +394,12 @@ pub fn run() {
             save_settings,
             set_always_on_top,
             set_bar_mode,
-            dock_right,
+            dock_side,
             center_window,
             set_window_size,
+            screen_size,
+            enter_panel_mode,
+            exit_panel_mode,
             hide_window,
             show_window,
             quit_app,

@@ -27,7 +27,7 @@ impl Default for HotkeySettings {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub theme: String,
     pub font_family: String,
@@ -39,6 +39,12 @@ pub struct Settings {
     pub show_clock: bool,
     pub progress_mode: String,
     pub bar_style: String,
+    /// Thickness of the progress bar, in percent of the screen.
+    pub bar_thickness: f64,
+    /// Corner radius of the progress bar, in logical pixels.
+    pub bar_radius: u32,
+    /// Screen edge the slim bar sticks to: "left" or "right".
+    pub bar_side: String,
     pub sound: String,
     pub loop_mode: bool,
     pub snap_to_edge: bool,
@@ -59,6 +65,9 @@ impl Default for Settings {
             show_clock: true,
             progress_mode: "elapsed".into(),
             bar_style: "solid".into(),
+            bar_thickness: 1.5,
+            bar_radius: 60,
+            bar_side: "right".into(),
             sound: "chime".into(),
             loop_mode: false,
             snap_to_edge: true,

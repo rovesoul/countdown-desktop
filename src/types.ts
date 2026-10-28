@@ -1,5 +1,14 @@
 export type Status = "idle" | "running" | "paused" | "finished";
 
+/** Layout the window settled into, based on its aspect ratio. */
+export type Layout = "h" | "v" | "bar";
+
+/** Logical size of the screen the widget is displayed on. */
+export interface ScreenSize {
+  width: number;
+  height: number;
+}
+
 export interface Snapshot {
   total: number;
   elapsed: number;
@@ -28,6 +37,9 @@ export interface Settings {
   showClock: boolean;
   progressMode: string;
   barStyle: string;
+  barThickness: number;
+  barRadius: number;
+  barSide: string;
   sound: string;
   loopMode: boolean;
   snapToEdge: boolean;
@@ -46,6 +58,9 @@ export const DEFAULT_SETTINGS: Settings = {
   showClock: true,
   progressMode: "elapsed",
   barStyle: "solid",
+  barThickness: 1.5,
+  barRadius: 60,
+  barSide: "right",
   sound: "chime",
   loopMode: false,
   snapToEdge: true,
@@ -94,6 +109,11 @@ export const BAR_OPTIONS: [string, string][] = [
 export const PROGRESS_OPTIONS: [string, string][] = [
   ["elapsed", "已用时间增长"],
   ["remaining", "剩余时间递减"],
+];
+
+export const BAR_SIDE_OPTIONS: [string, string][] = [
+  ["right", "右侧"],
+  ["left", "左侧"],
 ];
 
 export const SOUND_OPTIONS: [string, string][] = [

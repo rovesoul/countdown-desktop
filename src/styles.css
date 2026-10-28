@@ -39,6 +39,9 @@ input {
   --fs: 44px;
   --font: system-ui, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
   --shadow: 0 12px 40px rgba(24, 20, 12, 0.28);
+  --bar-size: 14px;
+  --bar-radius: 60px;
+  --seg: 6px;
 }
 
 :root[data-theme="ink"] {
@@ -230,6 +233,11 @@ input {
   color: var(--fg);
 }
 
+.icon-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
 .stage {
   display: flex;
   flex: 1 1 auto;
@@ -284,7 +292,7 @@ input {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--bar-radius, 999px);
   background: var(--track);
 }
 
@@ -324,8 +332,9 @@ input {
 .app[data-bar="segments"] .fill {
   background: repeating-linear-gradient(
     90deg,
-    var(--fill) 0 10px,
-    color-mix(in srgb, var(--fill) 45%, transparent) 10px 14px
+    var(--fill) 0 var(--seg),
+    color-mix(in srgb, var(--fill) 45%, transparent) var(--seg)
+      calc(var(--seg) * 1.4)
   );
 }
 
@@ -442,7 +451,8 @@ input {
 }
 
 .app[data-layout="h"] .track {
-  height: 14px;
+  height: var(--bar-size, 14px);
+  max-height: 70%;
 }
 
 /* vertical: the window is taller than wide -> the bar grows from top down */
@@ -452,7 +462,8 @@ input {
 }
 
 .app[data-layout="v"] .track {
-  width: 14px;
+  width: var(--bar-size, 14px);
+  max-width: 70%;
   min-height: 40px;
 }
 
@@ -569,8 +580,79 @@ input {
 
 .app.flash .clock,
 .app.flash .cap-value,
-.app.flash .brand-text {
+.app.flash .brand-text,
+.app.flash .mini {
   animation: flash-fg 0.55s linear infinite;
+}
+
+/* the slim bar fills the whole window, so the strip itself has to blink */
+.app[data-layout="bar"].flash .track {
+  animation: flash-bar-track 0.55s linear infinite;
+}
+
+@keyframes flash-bar-track {
+  0%,
+  44% {
+    background-color: var(--flash);
+  }
+  50%,
+  100% {
+    background-color: var(--track);
+  }
+}
+
+.app[data-layout="bar"].flash .fill {
+  background: none;
+  box-shadow: none;
+}
+
+/* ------------------------------------------------------------- help panel */
+
+.help-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.help-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.help-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.help-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.help-key {
+  flex: 0 0 auto;
+  min-width: 92px;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  color: var(--fg);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.help-text {
+  color: var(--muted);
 }
 
 /* -------------------------------------------------------------- overlays */
@@ -617,6 +699,10 @@ input {
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.04em;
+}
+
+.sheet-title[data-tauri-drag-region] {
+  cursor: move;
 }
 
 .sheet-text {
@@ -726,6 +812,12 @@ input {
   color: var(--fg);
 }
 
+.setting-hint {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
 .setting select,
 .setting input[type="text"] {
   width: 100%;
@@ -830,7 +922,10 @@ input {
   display: flex;
   flex-direction: column;
   min-width: 156px;
+  max-width: calc(100% - 8px);
+  max-height: calc(100% - 8px);
   padding: 5px;
+  overflow-y: auto;
   border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
   border-radius: 11px;
   background: var(--bg);
@@ -844,8 +939,7 @@ input {
 .ctx-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  gap: 6px;
   height: 28px;
   padding: 0 9px;
   border: 0;
@@ -853,8 +947,13 @@ input {
   background: transparent;
   font-size: 12.5px;
   text-align: left;
-  white-space: nowrap;
   cursor: pointer;
+}
+
+.ctx-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ctx-item:hover {
@@ -867,6 +966,7 @@ input {
 }
 
 .ctx-item .hint {
+  margin-left: auto;
   font-size: 10px;
   color: var(--muted);
 }
@@ -878,7 +978,8 @@ input {
 }
 
 .ctx-item[aria-checked="true"]::before {
-  margin-right: -6px;
+  margin-right: -2px;
+  color: var(--accent);
   content: "✓";
 }
 

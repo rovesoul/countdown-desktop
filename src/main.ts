@@ -3,17 +3,18 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./styles.css";
 import { formatClock, formatDuration, splitDuration } from "./format";
+import { renderHelp } from "./help";
 import { playFinish, primeAudio } from "./sound";
 import { renderSettings } from "./settings";
 import {
   DEFAULT_SETTINGS,
   FONT_FAMILIES,
+  type Layout,
+  type ScreenSize,
   type Settings,
   type Snapshot,
   type Status,
 } from "./types";
-
-type Layout = "h" | "v" | "bar";
 
 const el = <T extends HTMLElement>(id: string): T => {
   const node = document.getElementById(id);
@@ -34,7 +35,9 @@ const btnStart = el<HTMLButtonElement>("btnStart");
 const btnSet = el<HTMLButtonElement>("btnSet");
 const btnFlash = el<HTMLButtonElement>("btnFlash");
 const btnBar = el<HTMLButtonElement>("btnBar");
+const btnTop = el<HTMLButtonElement>("btnTop");
 const btnSettings = el<HTMLButtonElement>("btnSettings");
+const btnHelp = el<HTMLButtonElement>("btnHelp");
 const gripLeft = el("gripLeft");
 const gripRight = el("gripRight");
 const setOverlay = el("setOverlay");
@@ -47,6 +50,9 @@ const confirmCancel = el<HTMLButtonElement>("confirmCancel");
 const settingsGrid = el("settingsGrid");
 const settingsClose = el<HTMLButtonElement>("settingsClose");
 const settingsReset = el<HTMLButtonElement>("settingsReset");
+const helpOverlay = el("helpOverlay");
+const helpBody = el("helpBody");
+const helpClose = el<HTMLButtonElement>("helpClose");
 const ctxMenu = el("ctxMenu");
 const toastEl = el("toast");
 const inHours = el<HTMLInputElement>("inHours");
@@ -67,13 +73,22 @@ let snapshot: Snapshot = {
   rounds: 0,
 };
 let layout: Layout = "h";
+let screenSize: ScreenSize = { width: 1920, height: 1080 };
 let saveTimer: number | undefined;
 let toastTimer: number | undefined;
 let clickTimer: number | undefined;
 let confirmAction: (() => void) | null = null;
-let settingsRestore: { w: number; h: number } | null = null;
+let screenTimer: number | undefined;
+/** Set when the slim bar was expanded, so the settings can put it back. */
+let restoreBarMode = false;
 /** Set once the user silences the red blinking after a countdown ended. */
 let flashMuted = false;
+
+/** Live state the settings panel needs to translate percentages into pixels. */
+const settingsContext = {
+  screen: () => screenSize,
+  layout: () => layout,
+};
 
 // ------------------------------------------------------------------ helpers
 
@@ -128,6 +143,7 @@ function applySettings(): void {
   root.style.setProperty("--fs", `${settings.fontSize}px`);
   root.style.setProperty("--opacity", String(settings.opacity));
   root.style.setProperty("--radius", `${settings.radius}px`);
+  root.style.setProperty("--bar-radius", `${settings.barRadius}px`);
   root.style.setProperty(
     "--font",
     FONT_FAMILIES[settings.fontFamily] ?? FONT_FAMILIES.system,
@@ -135,6 +151,34 @@ function applySettings(): void {
   root.classList.toggle("hide-labels", !settings.showLabels);
   root.classList.toggle("hide-clock", !settings.showClock);
   app.dataset.bar = settings.barStyle;
+  applyBarSize();
+}
+
+/**
+ * Translates the "progress bar thickness" percentage into pixels.
+ *
+ * The vertical layout measures the bar against the screen width, the
+ * horizontal one against the screen height, so a single number controls
+ * both directions.
+ */
+function applyBarSize(): void {
+  const ratio = settings.barThickness / 100;
+  const base = layout === "h" ? screenSize.height : screenSize.width;
+  const thickness = Math.max(2, base * ratio);
+  const root = document.documentElement;
+  root.style.setProperty("--bar-size", `${thickness.toFixed(1)}px`);
+  root.style.setProperty("--seg", `${Math.max(4, thickness / 4).toFixed(1)}px`);
+}
+
+/** Reads the size of the screen the widget is on, used by the bar thickness. */
+async function refreshScreenSize(): Promise<void> {
+  const metrics = await call<ScreenSize>("screen_size");
+  if (!metrics) return;
+  if (metrics.width === screenSize.width && metrics.height === screenSize.height) {
+    return;
+  }
+  screenSize = metrics;
+  applyBarSize();
 }
 
 function patchSettings(mutate: (draft: Settings) => void): void {
@@ -149,6 +193,15 @@ function scheduleSave(): void {
     saveTimer = undefined;
     void call("save_settings", { settings }).then(() => refreshHotkeyWarnings());
   }, 250);
+}
+
+/** Writes the settings out right away, e.g. when a panel closes. */
+async function flushSave(): Promise<void> {
+  if (saveTimer) {
+    window.clearTimeout(saveTimer);
+    saveTimer = undefined;
+  }
+  await call("save_settings", { settings }).then(() => refreshHotkeyWarnings());
 }
 
 /** Surfaces hotkeys that could not be grabbed (another program owns them). */
@@ -197,6 +250,8 @@ function render(): void {
   statusText.textContent = statusLabel(snapshot.status);
   roundText.textContent = snapshot.rounds > 0 ? `第 ${snapshot.rounds + 1} 轮` : "";
   btnStart.textContent = startLabel(snapshot.status);
+  btnTop.classList.toggle("is-active", settings.alwaysOnTop);
+  btnTop.title = settings.alwaysOnTop ? "取消窗口置顶" : "窗口置顶";
 }
 
 function updateLayout(): void {
@@ -208,6 +263,7 @@ function updateLayout(): void {
     render();
   }
   app.dataset.layout = next;
+  applyBarSize();
 }
 
 // ------------------------------------------------------------------ actions
@@ -233,6 +289,9 @@ async function runAction(action: string): Promise<void> {
     case "toggleRun":
       await toggleRun();
       break;
+    case "toggle":
+      await toggleRun();
+      break;
     case "pause":
       await call("pause");
       break;
@@ -255,10 +314,11 @@ async function runAction(action: string): Promise<void> {
       await call("reset");
       break;
     case "bar":
+      restoreBarMode = false;
       await call("set_bar_mode", { enabled: layout !== "bar" });
       break;
     case "dock":
-      await call("dock_right");
+      await call("dock_side", { side: settings.barSide });
       break;
     case "center":
       await call("center_window");
@@ -269,10 +329,14 @@ async function runAction(action: string): Promise<void> {
       patchSettings((draft) => {
         draft.alwaysOnTop = next;
       });
+      render();
       break;
     }
     case "settings":
-      openSettings();
+      void openSettings();
+      break;
+    case "help":
+      void openHelp();
       break;
     case "quit":
       await call("quit_app");
@@ -311,27 +375,49 @@ function openSetPanel(): void {
   inMinutes.select();
 }
 
-function openSettings(): void {
-  if (settingsRestore) return;
-  settingsRestore = { w: window.innerWidth, h: window.innerHeight };
-  void call("set_window_size", {
-    width: Math.max(window.innerWidth, 460),
-    height: Math.max(window.innerHeight, 450),
-  });
-  renderSettings(settingsGrid, settings, patchSettings);
+async function openSettings(): Promise<void> {
+  if (!settingsOverlay.hidden) return;
+  // growing the window while keeping it on screen makes the panel reachable
+  // even when the widget is docked against an edge
+  await call("enter_panel_mode", { width: 460, height: 450 });
+  renderSettings(settingsGrid, settings, patchSettings, settingsContext);
   settingsOverlay.hidden = false;
 }
 
-function closeSettings(): void {
+async function closeSettings(): Promise<void> {
   if (settingsOverlay.hidden) return;
   settingsOverlay.hidden = true;
-  if (settingsRestore) {
-    void call("set_window_size", {
-      width: settingsRestore.w,
-      height: settingsRestore.h,
-    });
-    settingsRestore = null;
+  // persist first, so a new bar side takes effect right away
+  await flushSave();
+  await leavePanelMode();
+}
+
+async function openHelp(): Promise<void> {
+  if (!helpOverlay.hidden) return;
+  // the manual needs more room than the widget itself
+  await call("enter_panel_mode", { width: 520, height: 560 });
+  renderHelp(helpBody, settings);
+  helpOverlay.hidden = false;
+}
+
+async function closeHelp(): Promise<void> {
+  if (helpOverlay.hidden) return;
+  helpOverlay.hidden = true;
+  await leavePanelMode();
+}
+
+/**
+ * Shrinks the window back to the size it had before a panel was opened and
+ * restores the slim bar whenever the panel was opened from it.
+ */
+async function leavePanelMode(): Promise<void> {
+  if (restoreBarMode) {
+    restoreBarMode = false;
+    await call("exit_panel_mode");
+    await call("set_bar_mode", { enabled: true });
+    return;
   }
+  await call("exit_panel_mode");
 }
 
 function openConfirm(title: string, text: string, action: () => void): void {
@@ -377,16 +463,24 @@ function openCtxMenu(x: number, y: number): void {
     });
   }
   items.push({ separator: true });
+  items.push({
+    label: settings.alwaysOnTop ? "取消窗口置顶" : "窗口置顶",
+    action: "top",
+    checked: settings.alwaysOnTop,
+  });
   items.push({ label: "重置", action: "reset" });
   items.push({ separator: true });
   items.push({
     label: layout === "bar" ? "展开为面板" : "细条模式",
     action: "bar",
   });
-  items.push({ label: "靠右吸附", action: "dock" });
+  items.push({
+    label: settings.barSide === "left" ? "靠左吸附" : "靠右吸附",
+    action: "dock",
+  });
   items.push({ label: "窗口居中", action: "center" });
-  items.push({ label: "窗口置顶", action: "top", checked: settings.alwaysOnTop });
   items.push({ separator: true });
+  items.push({ label: "操作说明…", action: "help" });
   items.push({ label: "设置…", action: "settings" });
   items.push({ label: "关闭窗口", action: "hide", hint: "缩到托盘" });
   items.push({ label: "退出程序", action: "quit", danger: true });
@@ -401,7 +495,10 @@ function openCtxMenu(x: number, y: number): void {
     }
     const button = document.createElement("button");
     button.className = item.danger ? "ctx-item is-danger" : "ctx-item";
-    button.textContent = item.label ?? "";
+    const label = document.createElement("span");
+    label.className = "ctx-label";
+    label.textContent = item.label ?? "";
+    button.appendChild(label);
     if (item.checked !== undefined) {
       button.setAttribute("aria-checked", String(item.checked));
     }
@@ -424,6 +521,20 @@ function openCtxMenu(x: number, y: number): void {
   ctxMenu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 6))}px`;
 }
 
+/**
+ * Opens the context menu. The slim bar is too narrow to host a menu, so it is
+ * expanded into a panel first.
+ */
+async function openCtxMenuAt(x: number, y: number): Promise<void> {
+  if (window.innerWidth < 190) {
+    // remember the slim bar so closing the settings can restore it
+    restoreBarMode = layout === "bar";
+    await call("set_bar_mode", { enabled: false });
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+  }
+  openCtxMenu(x, y);
+}
+
 function closeCtxMenu(): void {
   ctxMenu.hidden = true;
 }
@@ -434,7 +545,9 @@ function bindEvents(): void {
   btnSet.addEventListener("click", () => openSetPanel());
   btnStart.addEventListener("click", () => void toggleRun());
   btnFlash.addEventListener("click", () => void runAction("flash"));
-  btnSettings.addEventListener("click", () => openSettings());
+  btnTop.addEventListener("click", () => void runAction("top"));
+  btnSettings.addEventListener("click", () => void openSettings());
+  btnHelp.addEventListener("click", () => void openHelp());
   btnBar.addEventListener("click", () =>
     void runAction(layout === "bar" ? "bar" : "bar"),
   );
@@ -458,11 +571,12 @@ function bindEvents(): void {
     await call("start");
   });
 
-  settingsClose.addEventListener("click", () => closeSettings());
+  settingsClose.addEventListener("click", () => void closeSettings());
+  helpClose.addEventListener("click", () => void closeHelp());
   settingsReset.addEventListener("click", () => {
     settings = structuredClone(DEFAULT_SETTINGS);
     applySettings();
-    renderSettings(settingsGrid, settings, patchSettings);
+    renderSettings(settingsGrid, settings, patchSettings, settingsContext);
     scheduleSave();
     void call("set_always_on_top", { value: settings.alwaysOnTop });
     toast("已恢复默认设置");
@@ -501,7 +615,7 @@ function bindEvents(): void {
     const target = event.target as HTMLElement | null;
     if (target?.closest(".overlay")) return;
     event.preventDefault();
-    openCtxMenu(event.clientX, event.clientY);
+    void openCtxMenuAt(event.clientX, event.clientY);
   });
 
   document.addEventListener("pointerdown", (event) => {
@@ -518,7 +632,8 @@ function bindEvents(): void {
     if (event.key === "Escape") {
       closeCtxMenu();
       setOverlay.hidden = true;
-      closeSettings();
+      void closeSettings();
+      void closeHelp();
       closeConfirm();
       return;
     }
@@ -533,7 +648,11 @@ function bindEvents(): void {
     }
   });
 
-  window.addEventListener("resize", updateLayout);
+  window.addEventListener("resize", () => {
+    updateLayout();
+    if (screenTimer) window.clearTimeout(screenTimer);
+    screenTimer = window.setTimeout(() => void refreshScreenSize(), 200);
+  });
   window.addEventListener("blur", closeCtxMenu);
 
   for (const minutes of [1, 3, 5, 10, 15, 25, 45, 60, 90]) {
@@ -564,6 +683,7 @@ async function bootstrap(): Promise<void> {
     };
     applySettings();
   }
+  await refreshScreenSize();
 
   const state = await call<Snapshot>("get_state");
   if (state) snapshot = state;

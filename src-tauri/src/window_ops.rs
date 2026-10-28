@@ -1,3 +1,4 @@
+use serde::Serialize;
 use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 /// Thickness of the slim bar. 8 mm is about one third of the narrow panel the
@@ -8,8 +9,138 @@ pub const PANEL_LOGICAL_SIZE: (f64, f64) = (460.0, 190.0);
 /// Smallest height the window may be dragged down to, in logical pixels.
 pub const MIN_LOGICAL_HEIGHT: u32 = 90;
 
+/// Logical size of the screen the widget is displayed on.
+#[derive(Serialize, Clone, Copy, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenSize {
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Where the window was before the settings panel changed its size.
+#[derive(Clone, Copy, Debug)]
+pub struct WindowGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Screen edge the slim bar sticks to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BarSide {
+    Left,
+    Right,
+}
+
+impl BarSide {
+    pub fn from_settings(value: &str) -> Self {
+        match value {
+            "left" => BarSide::Left,
+            _ => BarSide::Right,
+        }
+    }
+}
+
 fn scale_of(window: &WebviewWindow) -> f64 {
     window.scale_factor().unwrap_or(1.0)
+}
+
+impl WindowGeometry {
+    /// Reads the current window position and size so it can be restored later.
+    pub fn capture(window: &WebviewWindow) -> Result<Self, String> {
+        let position = window.outer_position().map_err(|e| e.to_string())?;
+        let size = window.outer_size().map_err(|e| e.to_string())?;
+        Ok(Self {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+        })
+    }
+
+    pub fn restore(self, window: &WebviewWindow) -> Result<(), String> {
+        window
+            .set_size(PhysicalSize::new(self.width, self.height))
+            .map_err(|e| e.to_string())?;
+        window
+            .set_position(PhysicalPosition::new(self.x, self.y))
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Logical size of the monitor the window currently sits on.
+pub fn screen_size(window: &WebviewWindow) -> Result<ScreenSize, String> {
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "找不到显示器".to_string())?;
+    let scale = monitor.scale_factor().max(0.01);
+    let size = monitor.size();
+    Ok(ScreenSize {
+        width: (size.width as f64 / scale).round(),
+        height: (size.height as f64 / scale).round(),
+    })
+}
+
+/// Grows the window so a panel fits on screen.
+///
+/// A widget docked against the right edge would otherwise grow out of the
+/// screen, which is what used to make the settings panel impossible to reach.
+pub fn expand_for_panel(
+    window: &WebviewWindow,
+    min_width: f64,
+    min_height: f64,
+) -> Result<(), String> {
+    let scale = scale_of(window);
+    let min_width = (min_width * scale).round() as u32;
+    let min_height = (min_height * scale).round() as u32;
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "找不到显示器".to_string())?;
+    let area = monitor.work_area();
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+
+    let area_left = area.position.x;
+    let area_top = area.position.y;
+    let area_right = area_left + area.size.width as i32;
+    let area_bottom = area_top + area.size.height as i32;
+
+    let new_width = size.width.max(min_width).min(area.size.width);
+    let new_height = size.height.max(min_height).min(area.size.height);
+
+    // keep the edge the window was docked to
+    let right_gap = area_right - (position.x + size.width as i32);
+    let left_gap = position.x - area_left;
+    let mut x = position.x;
+    if right_gap.abs() <= 8 {
+        x = area_right - new_width as i32;
+    } else if left_gap.abs() <= 8 {
+        x = area_left;
+    }
+
+    // and keep the vertical centre when it was centred
+    let top_gap = position.y - area_top;
+    let bottom_gap = area_bottom - (position.y + size.height as i32);
+    let mut y = position.y;
+    if (top_gap - bottom_gap).abs() <= 8 {
+        y = area_top + (area.size.height as i32 - new_height as i32) / 2;
+    }
+
+    // never let the window leave the work area
+    let max_x = (area_right - new_width as i32).max(area_left);
+    let max_y = (area_bottom - new_height as i32).max(area_top);
+    x = x.clamp(area_left, max_x);
+    y = y.clamp(area_top, max_y);
+
+    window
+        .set_size(PhysicalSize::new(new_width, new_height))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())
 }
 
 /// Physical pixel count of `mm` millimetres on the monitor the window lives on.
@@ -29,7 +160,7 @@ pub fn apply_min_size(window: &WebviewWindow) -> Result<(), String> {
 
 /// Switches between the regular panel and the slim bar. The slim bar is
 /// `BAR_WIDTH_MM` thick and spans the whole height of the screen.
-pub fn set_bar_mode(window: &WebviewWindow, enabled: bool) -> Result<(), String> {
+pub fn set_bar_mode(window: &WebviewWindow, enabled: bool, side: BarSide) -> Result<(), String> {
     if enabled {
         apply_min_size(window)?;
         let scale = scale_of(window);
@@ -44,11 +175,12 @@ pub fn set_bar_mode(window: &WebviewWindow, enabled: bool) -> Result<(), String>
         window
             .set_size(PhysicalSize::new(width, height))
             .map_err(|e| e.to_string())?;
+        let x = match side {
+            BarSide::Right => area.position.x + area.size.width as i32 - width as i32,
+            BarSide::Left => area.position.x,
+        };
         window
-            .set_position(PhysicalPosition::new(
-                area.position.x + area.size.width as i32 - width as i32,
-                area.position.y,
-            ))
+            .set_position(PhysicalPosition::new(x, area.position.y))
             .map_err(|e| e.to_string())?;
     } else {
         window
@@ -62,8 +194,8 @@ pub fn set_bar_mode(window: &WebviewWindow, enabled: bool) -> Result<(), String>
     Ok(())
 }
 
-/// Snaps the window flush against the right edge of its monitor.
-pub fn dock_right(window: &WebviewWindow) -> Result<(), String> {
+/// Snaps the window flush against the chosen edge of its monitor.
+pub fn dock_side(window: &WebviewWindow, side: BarSide) -> Result<(), String> {
     let monitor = window
         .current_monitor()
         .map_err(|e| e.to_string())?
@@ -71,7 +203,10 @@ pub fn dock_right(window: &WebviewWindow) -> Result<(), String> {
     let monitor_pos = monitor.position();
     let monitor_size = monitor.size();
     let window_size = window.outer_size().map_err(|e| e.to_string())?;
-    let x = monitor_pos.x + monitor_size.width as i32 - window_size.width as i32;
+    let x = match side {
+        BarSide::Right => monitor_pos.x + monitor_size.width as i32 - window_size.width as i32,
+        BarSide::Left => monitor_pos.x,
+    };
     let y = monitor_pos.y + ((monitor_size.height as i32 - window_size.height as i32) / 2).max(0);
     window
         .set_position(PhysicalPosition::new(x, y))
@@ -95,10 +230,7 @@ pub fn center_on_monitor(window: &WebviewWindow) -> Result<(), String> {
 }
 
 /// Magnetises the window to the left / right / top edge of its monitor.
-pub fn maybe_snap(
-    window: &WebviewWindow,
-    position: PhysicalPosition<i32>,
-) -> Result<(), String> {
+pub fn maybe_snap(window: &WebviewWindow, position: PhysicalPosition<i32>) -> Result<(), String> {
     let size = window.outer_size().map_err(|e| e.to_string())?;
     let center_x = position.x as f64 + size.width as f64 / 2.0;
     let center_y = position.y as f64 + size.height as f64 / 2.0;

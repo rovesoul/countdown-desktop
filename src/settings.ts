@@ -1,13 +1,24 @@
 import {
+  BAR_SIDE_OPTIONS,
   BAR_OPTIONS,
   FONT_OPTIONS,
   PROGRESS_OPTIONS,
   SOUND_OPTIONS,
   THEMES,
+  type Layout,
+  type ScreenSize,
   type Settings,
 } from "./types";
 
 export type SettingsPatch = (mutate: (draft: Settings) => void) => void;
+
+/** Bits of live state the settings panel needs to show meaningful numbers. */
+export interface SettingsContext {
+  /** Logical size of the screen the widget sits on. */
+  screen: () => ScreenSize;
+  /** Layout of the widget, decides which screen axis the bar follows. */
+  layout: () => Layout;
+}
 
 const KEY_ALIASES: Record<string, string> = {
   ArrowUp: "Up",
@@ -37,8 +48,17 @@ export function renderSettings(
   root: HTMLElement,
   settings: Settings,
   patch: SettingsPatch,
+  context: SettingsContext,
 ): void {
   root.textContent = "";
+
+  // the bar is measured against the screen, so the same percentage yields a
+  // visible thickness in both the vertical and the horizontal layout
+  const thicknessPx = (percent: number): number => {
+    const screen = context.screen();
+    const base = context.layout() === "h" ? screen.height : screen.width;
+    return Math.round((percent / 100) * base);
+  };
 
   root.appendChild(sectionTitle("外观"));
   root.appendChild(
@@ -97,6 +117,36 @@ export function renderSettings(
       }),
     ),
   );
+  root.appendChild(
+    rangeField(
+      "进度条粗细",
+      settings.barThickness,
+      0.2,
+      6,
+      0.1,
+      (value) => `${value.toFixed(1)}% · ${thicknessPx(value)}px`,
+      (value) =>
+        patch((draft) => {
+          draft.barThickness = value;
+        }),
+      "竖排按屏幕宽度计算，横排按屏幕高度计算",
+    ),
+  );
+  root.appendChild(
+    rangeField(
+      "进度条圆角",
+      settings.barRadius,
+      0,
+      100,
+      1,
+      (value) => `${value}px`,
+      (value) =>
+        patch((draft) => {
+          draft.barRadius = value;
+        }),
+      "超过条粗的一半就是胶囊形",
+    ),
+  );
 
   root.appendChild(sectionTitle("显示与提醒"));
   root.appendChild(
@@ -138,6 +188,13 @@ export function renderSettings(
     switchField("窗口边缘自动吸附", settings.snapToEdge, (value) =>
       patch((draft) => {
         draft.snapToEdge = value;
+      }),
+    ),
+  );
+  root.appendChild(
+    selectField("细条停靠侧", settings.barSide, BAR_SIDE_OPTIONS, (value) =>
+      patch((draft) => {
+        draft.barSide = value;
       }),
     ),
   );
@@ -224,6 +281,7 @@ function rangeField(
   step: number,
   format: (value: number) => string,
   onChange: (value: number) => void,
+  hint?: string,
 ): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.className = "setting";
@@ -250,6 +308,12 @@ function rangeField(
     onChange(next);
   });
   wrapper.appendChild(input);
+  if (hint) {
+    const caption = document.createElement("div");
+    caption.className = "setting-hint";
+    caption.textContent = hint;
+    wrapper.appendChild(caption);
+  }
   return wrapper;
 }
 
